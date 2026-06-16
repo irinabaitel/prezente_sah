@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Plăți Șah</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{
+  background:#080f1e;color:#f0f4ff;
+  font-family:'Segoe UI',sans-serif;
+  min-height:100vh;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;padding:24px;
+}
+.card{
+  background:#0d1e3a;border:1px solid #1e3a6e;border-radius:20px;
+  padding:36px 40px;max-width:420px;width:100%;
+  box-shadow:0 20px 60px rgba(0,0,0,0.6);text-align:center;
+}
+h1{font-size:1.5rem;color:#e8c84a;letter-spacing:2px;margin-bottom:6px}
+.sub{color:#4a7aaa;font-size:0.85rem;margin-bottom:32px}
+
+input{
+  width:100%;padding:14px 18px;border-radius:12px;
+  background:#071020;border:1px solid #2a4a7a;
+  color:#f0f4ff;font-size:1rem;letter-spacing:1px;
+  outline:none;transition:border-color 0.2s;text-align:center;
+  text-transform:uppercase;
+}
+input::placeholder{color:#3a5a8a;text-transform:none;letter-spacing:0}
+input:focus{border-color:#4a9ae0}
+
+button{
+  width:100%;margin-top:14px;padding:14px;border-radius:12px;
+  background:#1a4a8a;border:none;color:#fff;font-size:1rem;
+  font-weight:600;cursor:pointer;letter-spacing:1px;
+  transition:background 0.2s;
+}
+button:hover{background:#2a6abf}
+
+#result{margin-top:28px;display:none}
+
+.result-box{
+  border-radius:14px;padding:24px;
+  border:1px solid #2a4a7a;
+}
+.result-box.ok{border-color:#2a6a2a;background:#071a07}
+.result-box.warn{border-color:#6a2a2a;background:#1a0707}
+
+.child-name{font-size:1.2rem;font-weight:700;color:#e8c84a;margin-bottom:16px}
+.sessions-label{color:#6a8ab5;font-size:0.85rem;margin-bottom:6px}
+.sessions-num{font-size:3rem;font-weight:700;line-height:1}
+.sessions-num.zero{color:#4acf4a}
+.sessions-num.few{color:#e8c84a}
+.sessions-num.many{color:#ff6060}
+.sessions-text{font-size:0.9rem;margin-top:8px;color:#8ab0d0}
+
+.not-found{color:#ff6060;font-size:0.95rem;margin-top:16px}
+
+#loading{color:#4a7aaa;font-size:0.85rem;margin-top:16px;display:none}
+</style>
+</head>
+<body>
+
+<div class="card">
+  <h1>♟ Laboratorul de Șah</h1>
+  <div class="sub">Verificare ședințe restante</div>
+
+  <input type="text" id="nameInput" placeholder="Scrie numele copilului..."
+         onkeydown="if(event.key==='Enter') cauta()">
+  <button onclick="cauta()">Verifică</button>
+
+  <div id="loading">Se încarcă...</div>
+  <div id="result"></div>
+</div>
+
+<script>
+const SHEET_ID = '14hwRn11SQldU0zZTMRRgB83JU3TvaLiccKrrfitoqzE';
+const URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json`;
+
+let data = {}; // nume_normalizat -> {nume_afișat, sedinte}
+let loaded = false;
+
+async function loadData() {
+  document.getElementById('loading').style.display = 'block';
+  try {
+    const resp = await fetch(URL);
+    const text = await resp.text();
+    const json = JSON.parse(text.substring(47, text.length - 2));
+    const rows = json.table.rows;
+
+    const temp = {};
+    rows.forEach(row => {
+      if (!row.c[0] || !row.c[0].v) return;
+      const nume = row.c[0].v.trim();
+      const sed  = row.c[1] ? (row.c[1].v || 0) : 0;
+      const key  = normalizeaza(nume);
+
+      if (temp[key]) {
+        // duplicat — aduna sedintele
+        temp[key].sedinte += sed;
+      } else {
+        temp[key] = { numeAfisat: toTitleCase(nume), sedinte: sed };
+      }
+    });
+
+    data = temp;
+    loaded = true;
+  } catch(e) {
+    console.error(e);
+  }
+  document.getElementById('loading').style.display = 'none';
+}
+
+function normalizeaza(s) {
+  return s.toLowerCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/\s+/g, ' ').trim();
+}
+
+function toTitleCase(s) {
+  return s.toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
+}
+
+function cauta() {
+  const input = document.getElementById('nameInput').value.trim();
+  if (!input) return;
+
+  if (!loaded) {
+    loadData().then(() => cauta());
+    return;
+  }
+
+  const key = normalizeaza(input);
+  const resultDiv = document.getElementById('result');
+  resultDiv.style.display = 'block';
+
+  // cauta exact sau partial
+  let found = data[key];
+  if (!found) {
+    // cauta partial
+    const matches = Object.keys(data).filter(k => k.includes(key) || key.includes(k));
+    if (matches.length === 1) found = data[matches[0]];
+    else if (matches.length > 1) {
+      // mai multe rezultate - arata-le pe toate
+      const lista = matches.map(k => `<li>${data[k].numeAfisat}</li>`).join('');
+      resultDiv.innerHTML = `<div class="not-found">Mai mulți copii găsiți:<ul style="margin-top:8px;padding-left:20px;color:#e8c84a">${lista}</ul><div style="font-size:0.8rem;color:#4a7aaa;margin-top:8px">Scrie numele complet.</div></div>`;
+      return;
+    }
+  }
+
+  if (!found) {
+    resultDiv.innerHTML = `<div class="not-found">Numele „${toTitleCase(input)}" nu a fost găsit.<br><span style="font-size:0.8rem;color:#4a7aaa">Verifică ortografia sau contactează profesorul.</span></div>`;
+    return;
+  }
+
+  const s = found.sedinte;
+  let cls = s === 0 ? 'zero' : s <= 2 ? 'few' : 'many';
+  let msg = s === 0
+    ? '✓ Totul e în regulă!'
+    : s === 1
+    ? 'Ai o ședință de achitat.'
+    : `Ai ${s} ședințe de achitat.`;
+  let boxCls = s === 0 ? 'ok' : 'warn';
+
+  resultDiv.innerHTML = `
+    <div class="result-box ${boxCls}">
+      <div class="child-name">${found.numeAfisat}</div>
+      <div class="sessions-label">Ședințe restante</div>
+      <div class="sessions-num ${cls}">${s}</div>
+      <div class="sessions-text">${msg}</div>
+    </div>`;
+}
+
+// Incarca datele la start
+loadData();
+</script>
+</body>
+</html>
